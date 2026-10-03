@@ -10,7 +10,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_IDS = os.environ.get("CHAT_IDS", "").split(",")
 
 RENDER_URL = os.environ.get("RENDER_URL")
-current_video_url = "https://app0707.netlify.app/ "
+current_video_url = "https://tomar-jii.github.io/Jee-test/"
 
 
 @app.route("/")
